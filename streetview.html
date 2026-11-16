@@ -23,6 +23,7 @@
   <div id="form">
     <div class="row" style="margin-bottom:8px"><input id="from" placeholder="Start, z.B. Zürich HB"><input id="to" placeholder="Ziel, z.B. Bellevue Zürich"></div>
     <div class="row">
+      <select id="step"><option value="10">10 m</option><option value="20" selected>20 m</option><option value="50">50 m</option><option value="100">100 m</option></select>
       <select id="speed"><option value="2500">Langsam</option><option value="1500" selected>Normal</option><option value="900">Schnell</option></select>
       <button id="go">Los</button>
     </div>
@@ -33,7 +34,7 @@
 </div>
 <script>
 const $=id=>document.getElementById(id);
-const STEP=20; // Meter zwischen Bildern
+let STEP=20; // Meter zwischen Bildern, wird aus Auswahl gelesen
 const K=6;      // so viele Bilder parallel vorladen
 let pts=[],cur=-1,timer=null,loaded=[],slots=[];
 for(let k=0;k<K;k++){const f=document.createElement('iframe');f.idx=-1;$('view').appendChild(f);slots.push(f);}
@@ -92,7 +93,7 @@ $('go').onclick=async()=>{
     const [a,b]=await Promise.all([geocode($('from').value),geocode($('to').value)]);
     const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${a};${b}?overview=full&geometries=geojson`);
     const j=await r.json(); if(!j.routes||!j.routes[0]) throw new Error('Keine Route gefunden');
-    pts=resample(j.routes[0].geometry.coordinates);cur=0;loaded=[];slots.forEach(f=>f.idx=-1);
+    STEP=+$('step').value;pts=resample(j.routes[0].geometry.coordinates);cur=0;loaded=[];slots.forEach(f=>f.idx=-1);
     $('form').classList.add('hidden');$('play').classList.remove('hidden');fill();
     $('msg').textContent='Lade vor…';
     const need=Math.min(K,pts.length);
