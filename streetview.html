@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Street View Walk</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;font-family:system-ui,sans-serif;color:#fff}
+  #view{position:fixed;inset:0}
+  #view iframe{position:absolute;inset:0;width:100%;height:100%;border:0;transition:opacity .4s}
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:12px;background:rgba(0,0,0,.7);display:flex;flex-direction:column;gap:8px;z-index:2}
+  input,select,button{font-size:16px;padding:10px;border-radius:8px;border:0}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  button{background:#1a73e8;color:#fff;font-weight:600}
+  #bar{height:4px;background:#333;border-radius:2px}#fill{height:100%;width:0;background:#1a73e8}
+  #msg{font-size:13px;opacity:.8;min-height:1em}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="view"><iframe id="a"></iframe><iframe id="b" style="opacity:0"></iframe></div>
+<div id="ui">
+  <div id="form">
+    <div class="row" style="margin-bottom:8px"><input id="from" placeholder="Start, z.B. Zürich HB"><input id="to" placeholder="Ziel, z.B. Bellevue Zürich"></div>
+    <div class="row">
+      <select id="speed"><option value="2500">Langsam</option><option value="1500" selected>Normal</option><option value="900">Schnell</option></select>
+      <button id="go">Los</button>
+    </div>
+  </div>
+  <div id="play" class="row hidden"><button id="pause">Pause</button><button id="reset" style="background:#555">Neu</button></div>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="msg"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const STEP=15; // Meter zwischen Bildern
+let pts=[],i=0,timer=null,front=$('a'),back=$('b');
+
+const rad=d=>d*Math.PI/180, deg=r=>r*180/Math.PI;
+function dist(a,b){const R=6371e3,dLat=rad(b[1]-a[1]),dLng=rad(b[0]-a[0]);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(a[1]))*Math.cos(rad(b[1]))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+function bearing(a,b){const y=Math.sin(rad(b[0]-a[0]))*Math.cos(rad(b[1]));
+  const x=Math.cos(rad(a[1]))*Math.sin(rad(b[1]))-Math.sin(rad(a[1]))*Math.cos(rad(b[1]))*Math.cos(rad(b[0]-a[0]));
+  return (deg(Math.atan2(y,x))+360)%360;}
+
+function resample(line){
+  const out=[line[0]];let carry=0;
+  for(let k=1;k<line.length;k++){
+    const a=line[k-1],b=line[k],d=dist(a,b);let t=STEP-carry;
+    while(t<=d){out.push([a[0]+(b[0]-a[0])*t/d,a[1]+(b[1]-a[1])*t/d]);t+=STEP;}
+    carry=d-(t-STEP);
+  }
+  out.push(line[line.length-1]);
+  // Blickrichtung: auf Punkt ~3 Schritte voraus
+  let last=0;
+  return out.map((p,k)=>{const n=out[Math.min(k+3,out.length-1)];if(n!==p)last=bearing(p,n);return {lat:p[1],lng:p[0],h:last};});
+}
+
+async function geocode(q){
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
+  const j=await r.json(); if(!j[0]) throw new Error('Nicht gefunden: '+q); return [+j[0].lon,+j[0].lat];
+}
+
+function show(p){
+  back.onload=()=>{back.style.opacity=1;front.style.opacity=0;[front,back]=[back,front];};
+  back.src=`https://maps.google.com/maps?q=&layer=c&cbll=${p.lat},${p.lng}&cbp=11,${p.h.toFixed(0)},0,0,0&output=svembed`;
+}
+
+function tick(){
+  if(i>=pts.length){stop();$('msg').textContent='Angekommen 🎉';return;}
+  show(pts[i]);$('fill').style.width=(100*i/(pts.length-1))+'%';
+  $('msg').textContent=`${Math.round(i*STEP)} m / ${Math.round(pts.length*STEP)} m`;i++;
+}
+function start(){timer=setInterval(tick,+$('speed').value);$('pause').textContent='Pause';}
+function stop(){clearInterval(timer);timer=null;$('pause').textContent='Weiter';}
+
+$('go').onclick=async()=>{
+  try{
+    $('msg').textContent='Suche Route…';
+    const [a,b]=await Promise.all([geocode($('from').value),geocode($('to').value)]);
+    const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${a};${b}?overview=full&geometries=geojson`);
+    const j=await r.json(); if(!j.routes||!j.routes[0]) throw new Error('Keine Route gefunden');
+    pts=resample(j.routes[0].geometry.coordinates);i=0;
+    $('form').classList.add('hidden');$('play').classList.remove('hidden');start();
+  }catch(e){$('msg').textContent=e.message;}
+};
+$('pause').onclick=()=>timer?stop():start();
+$('reset').onclick=()=>{stop();$('form').classList.remove('hidden');$('play').classList.add('hidden');$('fill').style.width=0;$('msg').textContent='';};
+</script>
+</body>
+</html>
